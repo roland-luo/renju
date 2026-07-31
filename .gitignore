@@ -1,0 +1,6 @@
+.gstack
+.claude
+.swc
+dist
+node_modules
+tests

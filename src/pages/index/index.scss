@@ -1,0 +1,265 @@
+/* 主页面样式：简洁大气 */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 32px 64px;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(212, 167, 94, 0.08), transparent 60%),
+    var(--bg);
+}
+
+/* —— 头部 —— */
+.header {
+  width: 100%;
+  max-width: 720px;
+  margin-bottom: 28px;
+}
+
+.title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.title {
+  font-size: 52px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: var(--ink);
+  background: linear-gradient(180deg, #f7e9c8, #d4a75e);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+  font-size: 26px;
+  color: var(--ink-dim);
+  letter-spacing: 2px;
+}
+
+/* 标题右侧：副标题 + 音效开关 */
+.title-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.sound-toggle {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.sound-toggle--on {
+  border-color: rgba(212, 167, 94, 0.55);
+  box-shadow: 0 0 12px rgba(212, 167, 94, 0.18);
+}
+
+/* 状态栏 */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 24px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-size: 28px;
+  color: var(--ink);
+  transition: all 0.3s ease;
+}
+
+.status-stone {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.status-stone--black {
+  background: radial-gradient(circle at 32% 32%, #4d4d4d, #1a1a1a);
+}
+
+.status-stone--white {
+  background: radial-gradient(circle at 32% 32%, #ffffff, #cfcfcf);
+}
+
+.status--win {
+  border-color: rgba(212, 167, 94, 0.6);
+  background: linear-gradient(180deg, rgba(212, 167, 94, 0.18), var(--panel));
+}
+
+.status--lose,
+.status--warn {
+  border-color: rgba(216, 69, 43, 0.5);
+}
+
+.status--thinking .status-stone {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+}
+
+/* —— 棋盘 —— */
+.board-wrap {
+  width: 100%;
+  max-width: 720px;
+  aspect-ratio: 1 / 1;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    0 4px 16px rgba(0, 0, 0, 0.4);
+  margin-bottom: 32px;
+}
+
+.gomoku-board {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* —— 控制区 —— */
+.control-bar {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.control-label {
+  font-size: 26px;
+  color: var(--ink-dim);
+  width: 72px;
+  flex-shrink: 0;
+  letter-spacing: 2px;
+}
+
+/* 分段控件 */
+.seg {
+  flex: 1;
+  display: flex;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.seg-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 8px;
+  font-size: 26px;
+  color: var(--ink-dim);
+  transition: all 0.2s ease;
+  border-right: 1px solid var(--line);
+}
+
+.seg-item:last-child {
+  border-right: none;
+}
+
+.seg-item--active {
+  background: linear-gradient(180deg, var(--gold), var(--gold-deep));
+  color: #1a1206;
+  font-weight: 600;
+}
+
+/* 执子小圆点 */
+.dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+.dot--black {
+  background: radial-gradient(circle at 32% 32%, #4d4d4d, #1a1a1a);
+}
+
+.dot--white {
+  background: radial-gradient(circle at 32% 32%, #ffffff, #cfcfcf);
+  border: 1px solid #999;
+}
+
+.seg-item--active .dot--white {
+  border-color: #7a5a33;
+}
+
+/* 操作按钮 */
+.control-actions {
+  display: flex;
+  gap: 20px;
+  margin-top: 6px;
+}
+
+.btn {
+  flex: 1;
+  padding: 20px 0;
+  font-size: 28px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  line-height: 1.4;
+  transition: all 0.2s ease;
+}
+
+.btn::after {
+  border: none;
+}
+
+.btn--primary {
+  background: linear-gradient(180deg, var(--gold), var(--gold-deep));
+  color: #1a1206;
+  font-weight: 600;
+  border-color: transparent;
+}
+
+.btn--ghost {
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.btn--disabled,
+.btn[disabled] {
+  opacity: 0.4;
+}
+
+/* H5 下适当限制整体宽度、增加顶部留白 */
+@media (min-width: 768px) {
+  .page {
+    padding-top: 64px;
+  }
+}
