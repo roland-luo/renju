@@ -144,7 +144,7 @@ function alphaBeta(
   }
 }
 
-/** 中/高级 AI：Alpha-Beta */
+/** 中/高级 AI：Alpha-Beta（同步，一次性算完） */
 function searchMove(
   board: Board,
   color: Stone,
@@ -191,6 +191,70 @@ function searchMove(
   return { x: best.x, y: best.y, color };
 }
 
+/** 让出主线程一帧（H5 与小程序通用） */
+function yieldMain(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 0));
+}
+
+/**
+ * 异步 Alpha-Beta 根节点搜索：
+ * 逐个候选点评估，每评估一个让出主线程一次，避免长时间阻塞导致 UI 冻结。
+ * 迭代加深：从 minDepth 到 maxDepth，任一深度完成都更新最优解；被取消时返回当前最优。
+ */
+async function searchMoveAsync(
+  board: Board,
+  color: Stone,
+  maxDepth: number,
+  isCancelled: () => boolean,
+  minDepth = 2
+): Promise<Move | null> {
+  // 快速通道（同步，极快）
+  const win = findWinningMove(board, color);
+  if (win) return win;
+  const oppWin = findWinningMove(board, opponent(color));
+  if (oppWin) return { x: oppWin.x, y: oppWin.y, color };
+
+  const cands = getCandidates(board, color).slice(0, MAX_BRANCH);
+  if (cands.length === 0) {
+    const c = centerPoint();
+    return { x: c.x, y: c.y, color };
+  }
+
+  // 迭代加深：浅层先给出一个可用解，再逐步加深
+  let overallBest: Candidate = cands[0];
+  for (let depth = minDepth; depth <= maxDepth; depth++) {
+    let best: Candidate | null = null;
+    let bestScore = -Infinity;
+    let alpha = -Infinity;
+
+    for (const c of cands) {
+      if (isCancelled()) return { x: overallBest.x, y: overallBest.y, color }; // 被取消：返回当前已知最优
+      board[c.y][c.x] = color;
+      let score: number;
+      if (isWinAt(board, c.x, c.y)) {
+        score = SCORE.FIVE + depth;
+      } else {
+        score = alphaBeta(board, depth - 1, alpha, Infinity, false, color);
+      }
+      board[c.y][c.x] = Stone.Empty;
+      if (score > bestScore) {
+        bestScore = score;
+        best = c;
+      }
+      alpha = Math.max(alpha, bestScore);
+      // 每个候选点后让出主线程，保持 UI 流畅
+      await yieldMain();
+    }
+
+    if (best) overallBest = best;
+    if (isCancelled()) return { x: overallBest.x, y: overallBest.y, color };
+    // 若本轮已找到必胜，提前结束
+    if (bestScore >= SCORE.FIVE) break;
+  }
+
+  return { x: overallBest.x, y: overallBest.y, color };
+}
+
 /**
  * 统一入口：获取最佳落子
  * @param board 当前棋盘（不会被修改）
@@ -212,5 +276,29 @@ export function getBestMove(
       return searchMove(b, color, 4);
     default:
       return easyMove(b, color);
+  }
+}
+
+/**
+ * 异步统一入口：Hard 用分片 + 迭代加深，不阻塞主线程。
+ * @param isCancelled 取消信号（如悔棋/重开时置真），返回 true 时提前返回当前最优。
+ */
+export function getBestMoveAsync(
+  board: Board,
+  color: Stone,
+  difficulty: Difficulty,
+  isCancelled: () => boolean = () => false
+): Promise<Move | null> {
+  const b = cloneBoard(board);
+  switch (difficulty) {
+    case Difficulty.Hard:
+      // 深度4，迭代加深 2→4，分片让出主线程
+      return searchMoveAsync(b, color, 4, isCancelled, 2);
+    case Difficulty.Medium:
+      // Medium 也走异步但只搜深度2（快，几乎不占片）
+      return searchMoveAsync(b, color, 2, isCancelled, 2);
+    case Difficulty.Easy:
+    default:
+      return Promise.resolve(easyMove(b, color));
   }
 }
