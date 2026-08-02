@@ -21,6 +21,8 @@ interface Props {
   animator?: BoardAnimator;
   /** 动画版本号：变化时重启动画循环 */
   animTick?: number;
+  /** 手数序号映射：key=`${x},${y}` → 第几手。传入则在棋子上画序号 */
+  moveNumbers?: Map<string, number> | null;
   onPlay: (x: number, y: number) => void;
 }
 
@@ -39,6 +41,7 @@ export default function BoardCanvas(props: Props) {
     interactive,
     animator,
     animTick,
+    moveNumbers,
     onPlay,
   } = props;
 
@@ -66,6 +69,7 @@ export default function BoardCanvas(props: Props) {
       playerColor: pc,
       showForbiddenHint: showFb,
       animator: anim,
+      moveNumbers: moveNums,
     } = propsRef.current;
     const { size, padding, cell } = geomRef.current;
     const snap: AnimSnapshot = anim ? anim.snapshot() : EMPTY_SNAP;
@@ -155,7 +159,17 @@ export default function BoardCanvas(props: Props) {
           scale *= 1 + 0.07 * Math.sin(ca.winPhase * Math.PI * 2);
         }
         if (place < 1) alpha = Math.min(1, place * 1.6);
-        drawStone(ctx, px, py, cell * 0.44 * scale, s, inWin.has(`${x},${y}`), alpha);
+        const num = moveNums?.get(`${x},${y}`);
+        drawStone(
+          ctx,
+          px,
+          py,
+          cell * 0.44 * scale,
+          s,
+          inWin.has(`${x},${y}`),
+          alpha,
+          num
+        );
       }
     }
 
@@ -292,7 +306,7 @@ export default function BoardCanvas(props: Props) {
   /** 状态变化重绘 */
   useEffect(() => {
     draw();
-  }, [board, lastMove, winLine, showForbiddenHint, playerColor, draw]);
+  }, [board, lastMove, winLine, showForbiddenHint, playerColor, moveNumbers, draw]);
 
   /** 动画节拍变化 → 启动逐帧动画循环 */
   useEffect(() => {
@@ -379,7 +393,8 @@ function drawStone(
   r: number,
   color: Stone,
   highlight: boolean,
-  alpha = 1
+  alpha = 1,
+  moveNum?: number
 ) {
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -416,6 +431,15 @@ function drawStone(
     ctx.strokeStyle = THEME.lastMove;
     ctx.lineWidth = Math.max(1.5, r * 0.16);
     ctx.stroke();
+  }
+
+  // 手数序号：白子深色字、黑子浅色字
+  if (moveNum != null && r > 4) {
+    ctx.fillStyle = color === Stone.Black ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
+    ctx.font = `${Math.max(8, r * 0.9)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(moveNum), px, py + r * 0.05);
   }
   ctx.restore();
 }

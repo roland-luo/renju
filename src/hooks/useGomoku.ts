@@ -19,9 +19,10 @@ import {
   isWinAt,
   opponent,
 } from '@game/rules';
-import { getBestMove } from '@game/ai';
+import { getBestMoveAsync } from '@game/ai';
 import { BoardAnimator } from '@game/anim';
 import { playSound, unlockAudio } from '@game/sound';
+import { getStats, recordGame, Stats } from '@game/stats';
 
 export interface GomokuState {
   board: Board;
@@ -39,6 +40,10 @@ export interface GomokuState {
   shakeAt: { x: number; y: number } | null;
   /** 动画版本号：落子/悔棋/重开时 +1，驱动 Canvas 动画循环 */
   animTick: number;
+  /** 复盘：当前回放到第几手；null=正常对局（非复盘） */
+  reviewIndex: number | null;
+  /** 复盘模式是否激活（终局后可回放） */
+  reviewing: boolean;
 }
 
 export function useGomoku() {
@@ -53,6 +58,12 @@ export function useGomoku() {
   const [message, setMessage] = useState<string>('');
   const [shakeAt, setShakeAt] = useState<{ x: number; y: number } | null>(null);
   const [animTick, setAnimTick] = useState<number>(0);
+  /** 复盘：回看指针（0=开局空盘，moves.length=终局）；null=正常对局 */
+  const [reviewIndex, setReviewIndex] = useState<number | null>(null);
+  /** 对局统计 */
+  const [stats, setStats] = useState<Stats>(() => getStats());
+  /** 本局是否已计入统计（防止重复） */
+  const recordedRef = useRef(false);
 
   /** 棋盘动画器（跨渲染稳定） */
   const animatorRef = useRef<BoardAnimator | null>(null);
@@ -75,12 +86,20 @@ export function useGomoku() {
   stateRef.current = { board, moves, result, playerColor, difficulty };
 
   const aiTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** AI 搜索取消标志：悔棋/重开/组件卸载时置真，让进行中的搜索提前返回 */
+  const aiCancelled = useRef(false);
 
   const clearAiTimer = () => {
     if (aiTimer.current) {
       clearTimeout(aiTimer.current);
       aiTimer.current = null;
     }
+  };
+
+  /** 取消进行中的 AI 搜索 */
+  const cancelAi = () => {
+    aiCancelled.current = true;
+    clearAiTimer();
   };
 
   /** 终局音效：玩家视角（胜=win / 负=lose / 平=draw） */
@@ -155,30 +174,36 @@ export function useGomoku() {
     if (current !== aiColor) return;
 
     setThinking(true);
-    clearAiTimer();
+    cancelAi();
+    aiCancelled.current = false;
     // 延迟让出主线程，先渲染玩家落子
     aiTimer.current = setTimeout(() => {
       const { board: b, moves: mv } = stateRef.current;
-      const mv0 = getBestMove(b, aiColor, difficulty);
-      setThinking(false);
-      if (!mv0) {
-        setResult({ status: 'draw' });
-        return;
-      }
-      const nb = cloneBoard(b);
-      nb[mv0.y][mv0.x] = aiColor;
-      const nextMoves = [...mv, mv0];
-      setBoard(nb);
-      setMoves(nextMoves);
-      animator.onPlace(mv0.x, mv0.y);
-      setAnimTick((t) => t + 1);
-      playSound(aiColor === Stone.Black ? 'place-black' : 'place-white');
-      const res2 = judgeAfter(nb, mv0);
-      setResult(res2);
-      playResult(res2);
-    }, 350);
+      // 异步分片搜索：Hard 不阻塞 UI；悔棋/重开时被取消
+      getBestMoveAsync(b, aiColor, difficulty, () => aiCancelled.current)
+        .then((mv0) => {
+          if (aiCancelled.current) return; // 已被取消（悔棋/重开）
+          setThinking(false);
+          if (!mv0) {
+            setResult({ status: 'draw' });
+            return;
+          }
+          const nb = cloneBoard(b);
+          nb[mv0.y][mv0.x] = aiColor;
+          const nextMoves = [...mv, mv0];
+          setBoard(nb);
+          setMoves(nextMoves);
+          animator.onPlace(mv0.x, mv0.y);
+          setAnimTick((t) => t + 1);
+          playSound(aiColor === Stone.Black ? 'place-black' : 'place-white');
+          const res2 = judgeAfter(nb, mv0);
+          setResult(res2);
+          playResult(res2);
+        })
+        .catch(() => setThinking(false));
+    }, 200);
 
-    return clearAiTimer;
+    return cancelAi;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moves.length, result.status, aiColor, difficulty]);
 
@@ -188,6 +213,23 @@ export function useGomoku() {
     if (winLine) setAnimTick((t) => t + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winLine]);
+
+  /** 终局 → 记录统计（每局一次） */
+  useEffect(() => {
+    if (result.status === 'playing') return;
+    if (recordedRef.current) return;
+    // 至少下过一手才算一局（避免空盘直接判负等边界）
+    if (stateRef.current.moves.length === 0) return;
+    recordedRef.current = true;
+    const outcome =
+      result.status === 'draw'
+        ? 'draw'
+        : result.status === 'win' && result.winner === playerColor
+        ? 'win'
+        : 'lose';
+    setStats(recordGame(difficulty, outcome));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result.status]);
 
   /** 悔棋：回退玩家+AI 各一手（2 手），上限 MAX_UNDO */
   const undo = useCallback((): boolean => {
@@ -224,15 +266,16 @@ export function useGomoku() {
     animator.reset();
     setAnimTick((t) => t + 1);
     playSound('undo');
-    clearAiTimer();
+    cancelAi();
     setThinking(false);
+    setReviewIndex(null);
     return true;
   }, [undoLeft, aiColor, playerColor]);
 
   /** 重新开始（可更换执子/难度） */
   const restart = useCallback(
     (opts?: { playerColor?: Stone; difficulty?: Difficulty }) => {
-      clearAiTimer();
+      cancelAi();
       const pc = opts?.playerColor ?? stateRef.current.playerColor;
       const df = opts?.difficulty ?? stateRef.current.difficulty;
       if (opts?.playerColor) setPlayerColor(pc);
@@ -246,6 +289,8 @@ export function useGomoku() {
       setShakeAt(null);
       animator.reset();
       setAnimTick((t) => t + 1);
+      setReviewIndex(null);
+      recordedRef.current = false;
     },
     []
   );
@@ -255,10 +300,85 @@ export function useGomoku() {
     setDifficulty(d);
   }, []);
 
+  /** 重新读取统计（清空后刷新用） */
+  const refreshStats = useCallback(() => {
+    setStats(getStats());
+  }, []);
+
   const canUndo =
     undoLeft > 0 &&
     moves.length > 0 &&
     !(moves.length === 1 && moves[0].color === Stone.Black && playerColor === Stone.White);
+
+  /** 复盘是否激活（终局后进入回放） */
+  const reviewing = reviewIndex !== null;
+
+  /** 复盘棋盘：根据 reviewIndex 重建前 N 手（正常对局时用实时 board） */
+  const reviewBoard = useMemo((): Board => {
+    if (reviewIndex === null) return board;
+    const b = createBoard();
+    for (let i = 0; i < reviewIndex && i < moves.length; i++) {
+      b[moves[i].y][moves[i].x] = moves[i].color;
+    }
+    return b;
+  }, [reviewIndex, board, moves]);
+
+  /** 复盘时的"最后一手"标记 */
+  const reviewLastMove = useMemo((): Move | null => {
+    if (reviewIndex === null) return lastMove;
+    if (reviewIndex <= 0 || reviewIndex > moves.length) return null;
+    return moves[reviewIndex - 1];
+  }, [reviewIndex, lastMove, moves]);
+
+  /** 手数序号映射（复盘时显示在棋子上） */
+  const moveNumbers = useMemo((): Map<string, number> | null => {
+    if (reviewIndex === null) return null;
+    const m = new Map<string, number>();
+    for (let i = 0; i < reviewIndex && i < moves.length; i++) {
+      m.set(`${moves[i].x},${moves[i].y}`, i + 1);
+    }
+    return m;
+  }, [reviewIndex, moves]);
+
+  /** 进入复盘：从终局（或当前）开始回看 */
+  const startReview = useCallback(() => {
+    const { moves: mv } = stateRef.current;
+    if (mv.length === 0) return;
+    cancelAi();
+    setThinking(false);
+    setReviewIndex(mv.length);
+    animator.reset();
+    setAnimTick((t) => t + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** 退出复盘，回到实时棋盘 */
+  const exitReview = useCallback(() => {
+    setReviewIndex(null);
+    animator.reset();
+    setAnimTick((t) => t + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** 复盘步进：delta=±1，或 jump 到指定手 */
+  const reviewStep = useCallback(
+    (delta: number) => {
+      setReviewIndex((idx) => {
+        const cur = idx === null ? stateRef.current.moves.length : idx;
+        const next = Math.max(0, Math.min(stateRef.current.moves.length, cur + delta));
+        return next;
+      });
+      setAnimTick((t) => t + 1);
+    },
+    []
+  );
+
+  const reviewJump = useCallback((index: number) => {
+    setReviewIndex(() =>
+      Math.max(0, Math.min(stateRef.current.moves.length, index))
+    );
+    setAnimTick((t) => t + 1);
+  }, []);
 
   const state: GomokuState = {
     board,
@@ -274,12 +394,15 @@ export function useGomoku() {
     showForbiddenHint,
     shakeAt,
     animTick,
+    reviewIndex,
+    reviewing,
   };
 
   return {
     state,
     message,
     animator,
+    stats,
     playAt,
     undo,
     restart,
@@ -287,5 +410,14 @@ export function useGomoku() {
     setShowForbiddenHint,
     canUndo,
     unlockAudio,
+    refreshStats,
+    // 复盘
+    reviewBoard,
+    reviewLastMove,
+    moveNumbers,
+    startReview,
+    exitReview,
+    reviewStep,
+    reviewJump,
   };
 }

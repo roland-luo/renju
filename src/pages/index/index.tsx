@@ -6,8 +6,11 @@ import { useEffect, useState } from 'react';
 import { useGomoku } from '@/hooks/useGomoku';
 import BoardCanvas from '@components/BoardCanvas';
 import ControlBar from '@components/ControlBar';
+import ReviewBar from '@components/ReviewBar';
+import StatsPanel from '@components/StatsPanel';
 import { Difficulty, Stone } from '@game/constants';
 import { initSound, isSoundEnabled, setSoundEnabled, playSound } from '@game/sound';
+import { resetStats } from '@game/stats';
 import './index.scss';
 
 const DIFF_LABEL: Record<Difficulty, string> = {
@@ -21,12 +24,21 @@ export default function Index() {
     state,
     message,
     animator,
+    stats,
     playAt,
     undo,
     restart,
     changeDifficulty,
     canUndo,
     unlockAudio,
+    refreshStats,
+    reviewBoard,
+    reviewLastMove,
+    moveNumbers,
+    startReview,
+    exitReview,
+    reviewStep,
+    reviewJump,
   } = useGomoku();
 
   const [soundOn, setSoundOn] = useState<boolean>(true);
@@ -49,6 +61,9 @@ export default function Index() {
     showForbiddenHint,
     undoLeft,
     animTick,
+    reviewIndex,
+    reviewing,
+    moves,
   } = state;
 
   const gameOver = result.status !== 'playing';
@@ -115,20 +130,41 @@ export default function Index() {
         </View>
       </View>
 
-      {/* 棋盘 */}
+      {/* 棋盘（复盘时显示回放棋盘与手数序号） */}
       <View className="board-wrap">
         <BoardCanvas
-          board={board}
-          lastMove={lastMove}
+          board={reviewing ? reviewBoard : board}
+          lastMove={reviewing ? reviewLastMove : lastMove}
           winLine={winLine}
           playerColor={playerColor}
           showForbiddenHint={showForbiddenHint}
-          interactive={!gameOver && !thinking && current === playerColor}
+          interactive={!reviewing && !gameOver && !thinking && current === playerColor}
           animator={animator}
           animTick={animTick}
+          moveNumbers={reviewing ? moveNumbers : null}
           onPlay={playAt}
         />
       </View>
+
+      {/* 复盘控制（终局后可进入） */}
+      {reviewing ? (
+        <ReviewBar
+          index={reviewIndex ?? 0}
+          total={moves.length}
+          onFirst={() => reviewJump(0)}
+          onPrev={() => reviewStep(-1)}
+          onNext={() => reviewStep(1)}
+          onLast={() => reviewJump(moves.length)}
+          onExit={exitReview}
+        />
+      ) : (
+        gameOver &&
+        moves.length > 0 && (
+          <View className="review-entry" onClick={startReview}>
+            <Text className="review-entry-text">▶ 复盘本局</Text>
+          </View>
+        )
+      )}
 
       {/* 控制区 */}
       <ControlBar
@@ -140,6 +176,15 @@ export default function Index() {
         onRestart={(opts) => restart(opts)}
         onUndo={undo}
         onDifficulty={changeDifficulty}
+      />
+
+      {/* 对局统计 */}
+      <StatsPanel
+        stats={stats}
+        onReset={() => {
+          resetStats();
+          refreshStats();
+        }}
       />
     </View>
   );
