@@ -22,7 +22,9 @@ export default defineConfig<'webpack5'>(async (merge) => {
       '@components': path.resolve(__dirname, '..', 'src/components'),
     },
     copy: {
-      patterns: [],
+      // 音效应以真实文件存在于小程序包内（InnerAudioContext.src 不支持 base64），
+      // 原样拷贝到 dist/assets/audio/，运行时以 /assets/audio/xxx.mp3 引用。
+      patterns: [{ from: 'src/assets/audio/', to: 'dist/assets/audio/' }],
       options: {},
     },
     framework: 'react',
