@@ -1,25 +1,17 @@
 /**
  * 音效引擎：跨端
  *
- * - H5：WebAudio 振荡器实时合成（零音频资源）
- * - 小程序：无 WebAudio，改用 InnerAudioContext 播放预置 mp3
- *   （mp3 由 scripts/gen-audio-wav.js 按下方同一组参数离线合成，两端听感一致；
- *    经 copy.patterns 原样进包，以 /assets/audio/xxx.mp3 本地路径引用——
- *    InnerAudioContext.src 不支持 base64 dataUrl）
+ * - H5：WebAudio 振荡器实时合成（零资源，不加载任何音频文件）。
+ * - 小程序：无 WebAudio，用 InnerAudioContext 播放预置 mp3。
+ *   小程序端源码层面不 import 任何 mp3——否则会被 webpack 以 base64 dataUrl
+ *   内联进包（InnerAudioContext.src 也读不了），白增包体积。
+ *   mp3 经 copy.patterns 原样进包，以 /assets/audio/xxx.mp3 本地路径引用。
  *
  * 设计：所有音色用正弦/三角波 + 指数衰减包络，短促干净，
  *      符合"简洁大气"的棋盘气质，不喧宾夺主。
+ *      预置 mp3 由 scripts/gen-audio-wav.js 按下方同一组参数离线合成。
  */
 import Taro from '@tarojs/taro';
-
-// H5 端 import（Webpack asset 处理，输出真实 URL）；小程序端用下方常量路径。
-import placeBlackMp3 from '@/assets/audio/place-black.mp3';
-import placeWhiteMp3 from '@/assets/audio/place-white.mp3';
-import forbiddenMp3 from '@/assets/audio/forbidden.mp3';
-import undoMp3 from '@/assets/audio/undo.mp3';
-import winMp3 from '@/assets/audio/win.mp3';
-import loseMp3 from '@/assets/audio/lose.mp3';
-import drawMp3 from '@/assets/audio/draw.mp3';
 
 export type SoundName =
   | 'place-black' // 黑子落下：低频闷响
@@ -32,15 +24,15 @@ export type SoundName =
 
 const IS_H5 = process.env.TARO_ENV === 'h5';
 
-/** H5：import 产物 URL；小程序：包内本地路径 */
-const SOUND_SRC: Record<SoundName, string> = {
-  'place-black': IS_H5 ? placeBlackMp3 : '/assets/audio/place-black.mp3',
-  'place-white': IS_H5 ? placeWhiteMp3 : '/assets/audio/place-white.mp3',
-  forbidden: IS_H5 ? forbiddenMp3 : '/assets/audio/forbidden.mp3',
-  undo: IS_H5 ? undoMp3 : '/assets/audio/undo.mp3',
-  win: IS_H5 ? winMp3 : '/assets/audio/win.mp3',
-  lose: IS_H5 ? loseMp3 : '/assets/audio/lose.mp3',
-  draw: IS_H5 ? drawMp3 : '/assets/audio/draw.mp3',
+/** 小程序：包内本地路径（由 config/index.ts copy.patterns 拷到 dist） */
+const MINI_SRC: Record<SoundName, string> = {
+  'place-black': '/assets/audio/place-black.mp3',
+  'place-white': '/assets/audio/place-white.mp3',
+  forbidden: '/assets/audio/forbidden.mp3',
+  undo: '/assets/audio/undo.mp3',
+  win: '/assets/audio/win.mp3',
+  lose: '/assets/audio/lose.mp3',
+  draw: '/assets/audio/draw.mp3',
 };
 
 /** 是否启用（默认开，可持久化到本地） */
@@ -99,7 +91,7 @@ export function initSound(): void {
   if (v === '1') enabled = true;
 }
 
-/* ---------------- H5：WebAudio 合成 ---------------- */
+/* ---------------- H5：WebAudio 合成 + HTMLAudio 回退 ---------------- */
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -226,7 +218,7 @@ function getMiniAudio(name: SoundName): MiniAudio | null {
   if (cached) return cached;
   try {
     const a = Taro.createInnerAudioContext() as unknown as MiniAudio;
-    a.src = SOUND_SRC[name];
+    a.src = MINI_SRC[name];
     a.onError(() => {
       // 资源缺失或解码失败：丢弃实例，下次重建
       miniPool.delete(name);
